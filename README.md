@@ -1,5 +1,8 @@
 # INIRW
 
+> [!WARNING]
+> This README is slightly outdated. This will be updated, soon. Please read through the **tiny** source code for now!
+
 A single-header C++17 INI reader/writer that keeps your file's **order**, **comments** and **formatting** intact when you save.
 
 - Header-only, standard library only
