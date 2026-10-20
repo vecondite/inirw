@@ -109,6 +109,11 @@ namespace INIRW {
             void clear() { data.clear(); locs.clear(); }
     };
 
+    struct Output{
+        bool stat;
+        std::string out;
+    };
+
     inline size_t fU(std::string_view str, char esc, std::string_view filter){
         for(size_t i = 0; i<str.length(); ++i){
             if(str[i]==esc){
@@ -164,75 +169,70 @@ namespace INIRW {
     using SectData = oMap<std::string, std::string>;
     
     namespace detail{
-        inline void rwFile(std::string_view file, bool write, Ini& rWD){
-            if(write && rWD.empty()){
-                std::cerr << "Valid write data is required to write!\n";
-                return;
-            }
+        inline Output rwFile(std::string_view file, bool write, bool trunc, Ini& rWD){
+            Output out;
             Ini& wD = rWD;
             size_t instOffset = 0;
             std::vector<std::string> wL;
             std::fstream f;
-            f.open(std::string{file}, std::ios::in | std::ios::binary);
             std::string section = "";
-            bool pD = wD.find("")!=wD.end();
             bool crlf = false;
             unsigned int fL = 0;
-            if(f.is_open()){
-                std::string rL;
-                while(std::getline(f, rL)){
-                    if(fL == 0){
-                        fL = 1;
-                        if(rL.length() >= 3 && rL.compare(0, 3, "\xEF\xBB\xBF")==0){
-                            fL = 2;
-                            rL.erase(0,3);
+            if(!trunc){
+                f.open(std::string{file}, std::ios::in | std::ios::binary);
+                if(f.is_open()){
+                    std::string rL;
+                    while(std::getline(f, rL)){
+                        if(fL == 0){
+                            fL = 1;
+                            if(rL.length() >= 3 && rL.compare(0, 3, "\xEF\xBB\xBF")==0){
+                                fL = 2;
+                                rL.erase(0,3);
+                            }
+                            crlf = !rL.empty() && rL.back()=='\r';
                         }
-                        crlf = !rL.empty() && rL.back()=='\r';
-                    }
-                    std::string l = trim(rL, spaces);
-                    size_t cmnt = fU(l, '\\', vEsc);
-                    std::string dL = l.substr(0, cmnt);
-                    if(dL.empty()){
-                        if(write) wL.push_back(rL);
-                        continue;
-                    }  
-                    if(dL[0] == '['){
-                        size_t sE = fU(dL, '\\', "]");
-                        if(sE!=std::string::npos){
-                            if(write){
-                                Ini::EntryIterator rSect = wD.find(section);
-                                if(rSect!=wD.end()){
-                                    for(const SectData::Entry& kV : rSect->second){
-                                        wL.emplace(wL.begin() + instOffset, esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
-                                        ++instOffset;
-                                    }
-                                    wD.erase(rSect->first);
-                                }
-                            }
-                            section = uesc(trim(dL.substr(1, sE-1),spaces), '\\');
-                            if(write){
-                                pD = wD.find(section)!=wD.end();
-                                if(pD) wL.push_back(rL);
-                            }else{
-                                wD[section];
-                            }
-                            instOffset = wL.size();
+                        std::string l = trim(rL, spaces);
+                        size_t cmnt = fU(l, '\\', vEsc);
+                        std::string dL = l.substr(0, cmnt);
+                        if(dL.empty()){
+                            if(write) wL.push_back(rL);
                             continue;
+                        }  
+                        if(dL[0] == '['){
+                            size_t sE = fU(dL, '\\', "]");
+                            if(sE!=std::string::npos){
+                                if(write){
+                                    Ini::EntryIterator rSect = wD.find(section);
+                                    if(rSect!=wD.end()){
+                                        for(const SectData::Entry& kV : rSect->second){
+                                            wL.emplace(wL.begin() + instOffset, esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
+                                            ++instOffset;
+                                        }
+                                        wD.erase(rSect->first);
+                                    }
+                                }
+                                section = uesc(trim(dL.substr(1, sE-1),spaces), '\\');
+                                if(write){
+                                    wL.push_back(rL);
+                                }else{
+                                    wD[section];
+                                }
+                                instOffset = wL.size();
+                                continue;
+                            }
                         }
-                    }
-                    size_t eq = fU(dL, '\\', "=");
-                    std::string key = uesc(trim(dL.substr(0, eq), spaces), '\\');
-                    std::string value = eq==std::string::npos ? "" : uesc(trim(dL.substr(eq+1), spaces), '\\');
-                    cmnt = fU(rL, '\\', vEsc);
-                    dL = rL.substr(0, cmnt);
-                    eq = fU(dL, '\\', "=");
-                    size_t vS = eq == std::string::npos ? std::string::npos : dL.find_first_not_of(spaces, eq+1);
-                    size_t vE = dL.find_last_not_of(spaces);
-                    if(write){
-                    Ini::EntryIterator rSect = wD.find(section);
-                        if(rSect!=wD.end()){
-                            SectData& sD = rSect->second;
-                            if(pD){
+                        size_t eq = fU(dL, '\\', "=");
+                        std::string key = uesc(trim(dL.substr(0, eq), spaces), '\\');
+                        std::string value = eq==std::string::npos ? "" : uesc(trim(dL.substr(eq+1), spaces), '\\');
+                        cmnt = fU(rL, '\\', vEsc);
+                        dL = rL.substr(0, cmnt);
+                        eq = fU(dL, '\\', "=");
+                        size_t vS = eq == std::string::npos ? std::string::npos : dL.find_first_not_of(spaces, eq+1);
+                        size_t vE = dL.find_last_not_of(spaces);
+                        if(write){
+                            Ini::EntryIterator rSect = wD.find(section);
+                            if(rSect!=wD.end()){
+                                SectData& sD = rSect->second;
                                 SectData::EntryIterator found = sD.find(key);
                                 if(found!=sD.end()){
                                     if(found->second!=value){
@@ -250,16 +250,26 @@ namespace INIRW {
                                     }
                                     instOffset = wL.size();
                                     sD.erase(found->first);
+                                }else{
+                                    wL.push_back(rL);
+                                    instOffset=wL.size();
                                 }
+                            }else{
+                                wL.push_back(rL);
+                                instOffset=wL.size();
                             }
+                        }else{
+                            wD[section][key] = value;
                         }
-                    }else{
-                        wD[section][key] = value;
+                    }
+                    f.close();
+                }else{
+                    if(!write) {
+                        out.stat = false;
+                        out.out = "Failed to open file: " + std::string(file);
+                        return out;
                     }
                 }
-                f.close();
-            }else{
-                if(!write) std::cerr << "Failed to open file: " << file << "\n";
             }
             if(write){
                 Ini::EntryIterator lastSect = wD.find(section);
@@ -283,8 +293,9 @@ namespace INIRW {
                 std::error_code ec;
                 f.open(tmp, std::ios::out | std::ios::trunc | std::ios::binary);
                 if(!f.is_open()){
-                    std::cerr << "Error whilst opening " << tmp << " for writing!\n";
-                    return;
+                    out.stat = false;
+                    out.out = "Error whilst opening " + tmp + " for writing!";
+                    return out;
                 }
                 if(fL == 2) f << "\xEF\xBB\xBF";
                 for(const std::string& wLD : wL){
@@ -292,26 +303,38 @@ namespace INIRW {
                 }
                 f.close();
                 if(f.fail()){    
-                    std::cerr << "Error whilst writing " << tmp << ", " << target << " left untouched!\n";
                     std::filesystem::remove(tmp, ec);
-                    return;
+                    out.stat = false;
+                    out.out = "Error whilst writing " + tmp + ", " + target + " left untouched!";
+                    return out;
                 }
                 std::filesystem::rename(tmp, target, ec);
                 if(ec){
-                    std::cerr << "Could not replace " << target << ": " << ec.message() << "\n";
                     std::filesystem::remove(tmp, ec);
+                    out.stat = false;
+                    out.out = "Could not replace " + target + ": " + ec.message();
+                    return out;
                 }
             }
+            out.stat = true;
+            out.out = "Succeeded without issues.";
+            return out;
         }
     }
-    inline void read(std::string_view file, Ini& output){
+
+    inline Output read(std::string_view file, Ini& output){
         output.clear();
-        detail::rwFile(file, false, output);
+        return detail::rwFile(file, false, false, output);
     }
 
-    inline void write(std::string_view file, const Ini& data){
+    inline Output write(std::string_view file, const Ini& data){
         Ini cD = data;
-        detail::rwFile(file, true, cD);
+        return detail::rwFile(file, true, false, cD);
+    }
+
+    inline Output generate(std::string_view file, const Ini& data){
+        Ini cD = data;
+        return detail::rwFile(file, true, true, cD);
     }
 };
 
