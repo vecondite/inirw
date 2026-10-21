@@ -25,84 +25,65 @@ SOFTWARE.
 #ifndef INIRW_H
 #define INIRW_H
 
-#include <iostream>
 #include <fstream>
-#include <list>
 #include <vector>
 #include <unordered_map>
 #include <string>
 #include <string_view>
 #include <filesystem>
+#include <algorithm>
+#include <unordered_set>
 
 namespace INIRW {
     template<typename kT, typename vT> class oMap{
         public:
-            using Entry = std::pair<const kT, vT>;
-            using DataList = std::list<Entry>;
-            using EntryIterator = typename DataList::iterator;
-            using CEntryIterator = typename DataList::const_iterator;
-            using LocationMap = std::unordered_map<kT, EntryIterator>;
+            using Entry = std::pair<kT, vT>;
+            using DataList = std::vector<Entry>;
+            using LocationMap = std::unordered_map<kT, std::size_t>;
             using LocationIterator = typename LocationMap::iterator;
             using CLocationIterator = typename LocationMap::const_iterator;
         private:
             DataList data;
             LocationMap locs;
         public:
-            oMap() = default;
-            oMap(const oMap& other) : data(other.data) { for(EntryIterator it = data.begin(); it != data.end(); ++it) locs.emplace(it->first, it); }
-            oMap& operator=(const oMap& other) {
-                if(this!=&other){
-                    oMap temp(other);
-                    data.swap(temp.data);
-                    locs.swap(temp.locs);
-                }
-                return *this;
-            }
-            oMap(oMap&&) = default;
-            oMap& operator=(oMap&&) = default;
-
             vT& operator[](const kT& key){
                 LocationIterator val = locs.find(key);
                 if(val!=locs.end()){
-                    return val->second->second;
+                    return data[val->second].second;
                 }else{
-                    EntryIterator newEntry = data.emplace(data.end(), key, vT{});
+                    std::size_t idx = data.size();
+                    data.emplace_back(key, vT{});
                     try{
-                        locs.emplace(key, newEntry);
+                        locs.emplace(key, idx);
                     }catch(...){
-                        data.erase(newEntry);
+                        data.pop_back();
                         throw;
                     }
-                    return newEntry->second;
+                    return data.back().second;
                 }
             }
             void erase(const kT& key){
                 LocationIterator val = locs.find(key);
-                if(val!=locs.end()){
-                    data.erase(val->second);
-                    locs.erase(val);
+                if(val==locs.end()) return;
+                std::size_t idx = val->second;
+                locs.erase(val);
+                data.erase(data.begin()+idx);
+                for(std::size_t i = idx; i < data.size(); ++i){
+                    locs.find(data[i].first)->second = i;
                 }
             }
-            EntryIterator find(const kT& key) {
+            vT* find(const kT& key) {
                 LocationIterator val = locs.find(key);
-                if(val!=locs.end()){
-                    return val->second;
-                }else{
-                    return data.end();
-                }
+                return val!=locs.end() ? &data[val->second].second : nullptr;
             }
-            CEntryIterator find(const kT& key) const {
+            const vT* find(const kT& key) const {
                 CLocationIterator val = locs.find(key);
-                if(val!=locs.end()){
-                    return val->second;
-                }else{
-                    return data.end();
-                }
+                return val!=locs.end() ? &data[val->second].second : nullptr;
             }
-            EntryIterator begin() { return data.begin(); }
-            EntryIterator end() { return data.end(); }
-            CEntryIterator begin() const { return data.begin(); } 
-            CEntryIterator end() const { return data.end(); }
+            Entry* begin() { return data.data(); }
+            Entry* end() { return data.data() + data.size(); }
+            const Entry* begin() const { return data.data(); } 
+            const Entry* end() const { return data.data() + data.size(); }
             bool contains(const kT& key) const { return locs.find(key)!=locs.end(); }
             std::size_t size() const { return data.size(); }
             bool empty() const { return data.empty(); }
@@ -110,13 +91,15 @@ namespace INIRW {
     };
 
     struct Output{
-        bool stat;
+        bool stat = false;
         std::string out;
+
+        explicit operator bool() const { return stat; }
     };
 
-    inline size_t fU(std::string_view str, char esc, std::string_view filter){
-        for(size_t i = 0; i<str.length(); ++i){
-            if(str[i]==esc){
+    inline std::size_t fU(std::string_view str, char escC, std::string_view filter){
+        for(std::size_t i = 0; i<str.length(); ++i){
+            if(str[i]==escC){
                 ++i;
                 continue;
             }else if(filter.find(str[i])!=std::string::npos){
@@ -126,21 +109,21 @@ namespace INIRW {
         return std::string::npos;
     }
 
-    inline std::string trim(std::string_view str, std::string_view tT){
-        size_t s = str.find_first_not_of(tT);
+    inline std::string_view trim(std::string_view str, std::string_view tT){
+        std::size_t s = str.find_first_not_of(tT);
         if(s==std::string::npos) return "";
-        size_t e = str.find_last_not_of(tT);
-        return std::string(str.substr(s, e-s+1));
+        std::size_t e = str.find_last_not_of(tT);
+        return str.substr(s, e-s+1);
     }
 
-    inline std::string uesc(std::string_view str, char esc){
+    inline std::string uesc(std::string_view str, char escC){
         std::string output = "";
         bool skip = false;
         for(char c : str){
             if(skip){
                 skip = false;
                 output += c;
-            }else if(c == esc){
+            }else if(c == escC){
                 skip = true;
             }else{
                 output += c;
@@ -160,22 +143,33 @@ namespace INIRW {
         return output;
     }
 
-    constexpr std::string_view spaces = " \t\r\n";
-    constexpr std::string_view kEsc = ";#=[]";
-    constexpr std::string_view vEsc = ";#";
-    constexpr std::string_view sEsc = ";#]";
-
     using Ini = oMap<std::string, oMap<std::string, std::string>>;
     using SectData = oMap<std::string, std::string>;
-    
+
+    inline constexpr std::string_view spaces = " \t\r\n";
+    inline constexpr std::string_view kEsc = ";#=[]";
+    inline constexpr std::string_view vEsc = ";#";
+    inline constexpr std::string_view sEsc = ";#]";
+
+    inline void fSect(std::vector<std::string>& wL, std::size_t& instOffset, const SectData& sect, const std::unordered_set<std::string>& done){
+        std::vector<std::string> nL;
+        for(const SectData::Entry& kV : sect){
+            if(done.count(kV.first)!=0) continue;
+            nL.push_back(esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
+        }
+        wL.insert(wL.begin() + instOffset, nL.begin(), nL.end());
+        instOffset+=nL.size();
+    }
+
     namespace detail{
-        inline Output rwFile(std::string_view file, bool write, bool trunc, Ini& rWD){
+        inline Output rwFile(std::string_view file, bool write, bool trunc, const Ini& wD, Ini* rD){
             Output out;
-            Ini& wD = rWD;
-            size_t instOffset = 0;
+            std::size_t instOffset = 0;
             std::vector<std::string> wL;
             std::fstream f;
             std::string section = "";
+            std::unordered_set<std::string> dSects;
+            std::unordered_set<std::string> dKeys;
             bool crlf = false;
             unsigned int fL = 0;
             if(!trunc){
@@ -191,52 +185,49 @@ namespace INIRW {
                             }
                             crlf = !rL.empty() && rL.back()=='\r';
                         }
-                        std::string l = trim(rL, spaces);
-                        size_t cmnt = fU(l, '\\', vEsc);
-                        std::string dL = l.substr(0, cmnt);
+                        std::string_view l = trim(rL, spaces);
+                        std::size_t cmnt = fU(l, '\\', vEsc);
+                        std::string_view dL = l.substr(0, cmnt);
                         if(dL.empty()){
                             if(write) wL.push_back(rL);
                             continue;
                         }  
                         if(dL[0] == '['){
-                            size_t sE = fU(dL, '\\', "]");
+                            std::size_t sE = fU(dL, '\\', "]");
                             if(sE!=std::string::npos){
                                 if(write){
-                                    Ini::EntryIterator rSect = wD.find(section);
-                                    if(rSect!=wD.end()){
-                                        for(const SectData::Entry& kV : rSect->second){
-                                            wL.emplace(wL.begin() + instOffset, esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
-                                            ++instOffset;
+                                    if(const SectData* rSect = wD.find(section)){
+                                        if(dSects.insert(section).second){
+                                            fSect(wL, instOffset, *rSect, dKeys);
                                         }
-                                        wD.erase(rSect->first);
                                     }
                                 }
+                                dKeys.clear();
                                 section = uesc(trim(dL.substr(1, sE-1),spaces), '\\');
                                 if(write){
                                     wL.push_back(rL);
                                 }else{
-                                    wD[section];
+                                    (*rD)[section];
                                 }
                                 instOffset = wL.size();
                                 continue;
                             }
                         }
-                        size_t eq = fU(dL, '\\', "=");
+                        std::size_t eq = fU(dL, '\\', "=");
                         std::string key = uesc(trim(dL.substr(0, eq), spaces), '\\');
                         std::string value = eq==std::string::npos ? "" : uesc(trim(dL.substr(eq+1), spaces), '\\');
                         cmnt = fU(rL, '\\', vEsc);
-                        dL = rL.substr(0, cmnt);
+                        dL = std::string_view(rL).substr(0, cmnt);
                         eq = fU(dL, '\\', "=");
-                        size_t vS = eq == std::string::npos ? std::string::npos : dL.find_first_not_of(spaces, eq+1);
-                        size_t vE = dL.find_last_not_of(spaces);
+                        std::size_t vS = eq == std::string::npos ? std::string::npos : dL.find_first_not_of(spaces, eq+1);
+                        std::size_t vE = dL.find_last_not_of(spaces);
                         if(write){
-                            Ini::EntryIterator rSect = wD.find(section);
-                            if(rSect!=wD.end()){
-                                SectData& sD = rSect->second;
-                                SectData::EntryIterator found = sD.find(key);
-                                if(found!=sD.end()){
-                                    if(found->second!=value){
-                                        std::string eVal = esc(found->second, '\\', vEsc);
+                            const SectData* sD = wD.find(section);
+                            if(sD!=nullptr){
+                                const std::string* found = sD->find(key);
+                                if(found!=nullptr){
+                                    if(*found!=value){
+                                        std::string eVal = esc(*found, '\\', vEsc);
                                         if(eq==std::string::npos){
                                             rL.insert(vE+1, " = " + eVal);
                                         }else if(vS==std::string::npos){
@@ -244,22 +235,14 @@ namespace INIRW {
                                         }else{
                                             rL.replace(vS, vE-vS+1, eVal);
                                         }
-                                        wL.push_back(rL);
-                                    }else{
-                                        wL.push_back(rL);
                                     }
-                                    instOffset = wL.size();
-                                    sD.erase(found->first);
-                                }else{
-                                    wL.push_back(rL);
-                                    instOffset=wL.size();
+                                    dKeys.insert(key);
                                 }
-                            }else{
-                                wL.push_back(rL);
-                                instOffset=wL.size();
                             }
+                            wL.push_back(rL);
+                            instOffset=wL.size();
                         }else{
-                            wD[section][key] = value;
+                            (*rD)[section][key] = value;
                         }
                     }
                     f.close();
@@ -272,20 +255,16 @@ namespace INIRW {
                 }
             }
             if(write){
-                Ini::EntryIterator lastSect = wD.find(section);
-                if(lastSect!=wD.end()){
-                    for (const SectData::Entry& kV : lastSect->second){
-                        wL.emplace(wL.begin() + instOffset, esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
-                        ++instOffset;
+                if(const SectData* lastSect = wD.find(section)){
+                    if(dSects.insert(section).second){
+                        fSect(wL, instOffset, *lastSect, dKeys);
                     }
-                    wD.erase(lastSect->first);
                 }
-                if(!wD.empty()){
-                    for(const Ini::Entry& rSect : wD){
-                        if(!rSect.first.empty()) wL.push_back("[" + esc(rSect.first, '\\', sEsc) + "]");
-                        for(const SectData::Entry& kV : rSect.second){
-                            wL.push_back(esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
-                        }
+                for(const Ini::Entry& rSect : wD){
+                    if(dSects.count(rSect.first)!=0) continue;
+                    if(!rSect.first.empty()) wL.push_back("[" + esc(rSect.first, '\\', sEsc) + "]");
+                    for(const SectData::Entry& kV : rSect.second){
+                        wL.push_back(esc(kV.first, '\\', kEsc) + " = " + esc(kV.second, '\\', vEsc));
                     }
                 }
                 std::string target{file};
@@ -324,17 +303,15 @@ namespace INIRW {
 
     inline Output read(std::string_view file, Ini& output){
         output.clear();
-        return detail::rwFile(file, false, false, output);
+        return detail::rwFile(file, false, false, output, &output);
     }
 
-    inline Output write(std::string_view file, const Ini& data){
-        Ini cD = data;
-        return detail::rwFile(file, true, false, cD);
+    inline Output write(std::string_view file, Ini& data){
+        return detail::rwFile(file, true, false, data, nullptr);
     }
 
-    inline Output generate(std::string_view file, const Ini& data){
-        Ini cD = data;
-        return detail::rwFile(file, true, true, cD);
+    inline Output generate(std::string_view file, Ini& data){
+        return detail::rwFile(file, true, true, data, nullptr);
     }
 };
 
