@@ -33,6 +33,7 @@ SOFTWARE.
 #include <filesystem>
 #include <algorithm>
 #include <unordered_set>
+#include <atomic>
 
 namespace INIRW {
     template<typename kT, typename vT> class oMap{
@@ -96,6 +97,18 @@ namespace INIRW {
 
         explicit operator bool() const { return stat; }
     };
+
+    inline std::string unique_string() {
+        static std::atomic<uint64_t> seq{0};
+        uint64_t count = seq.fetch_add(1, std::memory_order_relaxed);
+        return std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+std::to_string(count);
+    }
+
+    inline void cPerms(const std::filesystem::path& source, const std::filesystem::path& dest){
+        std::error_code ec;
+        std::filesystem::file_status src_stat = std::filesystem::status(source, ec);
+        if(!ec) std::filesystem::permissions(dest, src_stat.permissions(), std::filesystem::perm_options::replace, ec);
+    }
 
     inline std::size_t fU(std::string_view str, char escC, std::string_view filter){
         for(std::size_t i = 0; i<str.length(); ++i){
@@ -268,7 +281,7 @@ namespace INIRW {
                     }
                 }
                 std::string target{file};
-                std::string tmp = target + ".tmp";
+                std::string tmp = target + unique_string() + ".tmp";
                 std::error_code ec;
                 f.open(tmp, std::ios::out | std::ios::trunc | std::ios::binary);
                 if(!f.is_open()){
@@ -287,6 +300,7 @@ namespace INIRW {
                     out.out = "Error whilst writing " + tmp + ", " + target + " left untouched!";
                     return out;
                 }
+                cPerms(target, tmp);
                 std::filesystem::rename(tmp, target, ec);
                 if(ec){
                     std::filesystem::remove(tmp, ec);
