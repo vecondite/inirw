@@ -198,11 +198,12 @@ namespace INIRW {
                             }
                             crlf = !rL.empty() && rL.back()=='\r';
                         }
+                        if(!rL.empty() && rL.back()=='\r') rL.pop_back();
                         std::string_view l = trim(rL, spaces);
                         std::size_t cmnt = fU(l, '\\', vEsc);
                         std::string_view dL = l.substr(0, cmnt);
                         if(dL.empty()){
-                            if(write) wL.push_back(rL);
+                            if(write && (section.empty()||wD.contains(section))) wL.push_back(rL);
                             continue;
                         }  
                         if(dL[0] == '['){
@@ -218,7 +219,7 @@ namespace INIRW {
                                 dKeys.clear();
                                 section = uesc(trim(dL.substr(1, sE-1),spaces), '\\');
                                 if(write){
-                                    wL.push_back(rL);
+                                    if(wD.contains(section)) wL.push_back(rL);
                                 }else{
                                     (*rD)[section];
                                 }
@@ -250,10 +251,10 @@ namespace INIRW {
                                         }
                                     }
                                     dKeys.insert(key);
+                                    wL.push_back(rL);
+                                    instOffset=wL.size();
                                 }
                             }
-                            wL.push_back(rL);
-                            instOffset=wL.size();
                         }else{
                             (*rD)[section][key] = value;
                         }
@@ -291,7 +292,7 @@ namespace INIRW {
                 }
                 if(fL == 2) f << "\xEF\xBB\xBF";
                 for(const std::string& wLD : wL){
-                    f << wLD << (crlf && (wLD.empty() || wLD.back()!='\r') ? "\r\n" : "\n");
+                    f << wLD << (crlf ? "\r\n" : "\n");
                 }
                 f.close();
                 if(f.fail()){    
@@ -320,11 +321,11 @@ namespace INIRW {
         return detail::rwFile(file, false, false, output, &output);
     }
 
-    inline Output write(std::string_view file, Ini& data){
+    inline Output write(std::string_view file, const Ini& data){
         return detail::rwFile(file, true, false, data, nullptr);
     }
 
-    inline Output generate(std::string_view file, Ini& data){
+    inline Output generate(std::string_view file, const Ini& data){
         return detail::rwFile(file, true, true, data, nullptr);
     }
 };
