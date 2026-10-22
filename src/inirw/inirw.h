@@ -36,6 +36,15 @@ SOFTWARE.
 #include <atomic>
 
 namespace INIRW {
+    inline std::string normalize(std::string k){
+        #ifdef INIRW_CASE_INSENSITIVE
+        std::transform(k.begin(), k.end(), k.begin(), [](unsigned char c){
+            return static_cast<char>(std::tolower(c));
+        });
+        #endif
+        return k;
+    }
+
     template<typename kT, typename vT> class oMap{
         public:
             using Entry = std::pair<kT, vT>;
@@ -48,14 +57,14 @@ namespace INIRW {
             LocationMap locs;
         public:
             vT& operator[](const kT& key){
-                LocationIterator val = locs.find(key);
+                LocationIterator val = locs.find(INIRW::normalize(key));
                 if(val!=locs.end()){
                     return data[val->second].second;
                 }else{
                     std::size_t idx = data.size();
                     data.emplace_back(key, vT{});
                     try{
-                        locs.emplace(key, idx);
+                        locs.emplace(INIRW::normalize(key), idx);
                     }catch(...){
                         data.pop_back();
                         throw;
@@ -64,28 +73,28 @@ namespace INIRW {
                 }
             }
             void erase(const kT& key){
-                LocationIterator val = locs.find(key);
+                LocationIterator val = locs.find(INIRW::normalize(key));
                 if(val==locs.end()) return;
                 std::size_t idx = val->second;
                 locs.erase(val);
                 data.erase(data.begin()+idx);
                 for(std::size_t i = idx; i < data.size(); ++i){
-                    locs.find(data[i].first)->second = i;
+                    locs.find(INIRW::normalize(data[i].first))->second = i;
                 }
             }
             vT* find(const kT& key) {
-                LocationIterator val = locs.find(key);
+                LocationIterator val = locs.find(INIRW::normalize(key));
                 return val!=locs.end() ? &data[val->second].second : nullptr;
             }
             const vT* find(const kT& key) const {
-                CLocationIterator val = locs.find(key);
+                CLocationIterator val = locs.find(INIRW::normalize(key));
                 return val!=locs.end() ? &data[val->second].second : nullptr;
             }
             Entry* begin() { return data.data(); }
             Entry* end() { return data.data() + data.size(); }
             const Entry* begin() const { return data.data(); } 
             const Entry* end() const { return data.data() + data.size(); }
-            bool contains(const kT& key) const { return locs.find(key)!=locs.end(); }
+            bool contains(const kT& key) const { return locs.find(INIRW::normalize(key))!=locs.end(); }
             std::size_t size() const { return data.size(); }
             bool empty() const { return data.empty(); }
             void clear() { data.clear(); locs.clear(); }
